@@ -151,6 +151,8 @@ class Challenge(ABC):
 
     def llm_eval(self, config: Dict[str, Any], content: str, ground: Ground) -> float:
         openai.api_key = os.getenv("OPENAI_API_KEY")
+        if os.getenv("OPENAI_API_BASE_URL"):
+            openai.api_base = os.getenv("OPENAI_API_BASE_URL")
         if os.getenv("IS_MOCK"):
             return 1.0
 
