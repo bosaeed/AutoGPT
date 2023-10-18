@@ -21,7 +21,7 @@ from forge.sdk import (
 LOG = ForgeLogger(__name__)
 
 # MODEL = "gpt-3.5-turbo"
-MAX_STEPS = 4
+MAX_STEPS = 10
 
 class ForgeAgent(Agent):
     """
@@ -302,7 +302,7 @@ class ForgeAgent(Agent):
 
                     function_kwargs = {
                         "name": ability['name'],
-                        # "args": str(ability["arguments"]),
+                        "args": str(ability["arguments"]),
                         "output": output,
                     }
 
