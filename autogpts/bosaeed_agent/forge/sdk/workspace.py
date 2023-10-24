@@ -76,7 +76,7 @@ class LocalWorkspace(Workspace):
             os.remove(resolved_path)
 
     def exists(self, task_id: str, path: str) -> bool:
-        path = self.base_path / task_id / path
+        # path = self.base_path / task_id / path
         return self._resolve_path(task_id, path).exists()
 
     def list(self, task_id: str, path: str) -> typing.List[str]:

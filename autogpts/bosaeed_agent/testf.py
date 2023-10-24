@@ -56,7 +56,7 @@ text_splitter = CharacterTextSplitter(chunk_size=10, chunk_overlap=0)
 
 text_splitter = RecursiveCharacterTextSplitter(
     # Set a really small chunk size, just to show.
-    chunk_size = 200,
+    chunk_size = 100,
     chunk_overlap  = 0,
     length_function = len,
     add_start_index = True,
@@ -66,15 +66,21 @@ text_splitter = RecursiveCharacterTextSplitter(
 documents = text_splitter.split_text(output)
 
 print(documents)
+vectorstore = Weaviate.from_texts(documents, embeddings, client=weaviate_client, by_text=False)
+
 
 #%%
-vectorstore = Weaviate.from_texts(documents, embeddings, client=weaviate_client, by_text=False)
+
 query = "utility"
 
-query_embedding = embeddings.embed_query(query)
+# query_embedding = embeddings.embed_query(query)
 
-docs = vectorstore.similarity_search_by_vector(query_embedding)
+docs = vectorstore.similarity_search(query , k=40)
 
+print(docs)
+
+docs = vectorstore.max_marginal_relevance_search(query , k=40 , fetch_k= 50,  lambda_mult= 0.9,)
+print("*******************")
 print(docs)
 
 #%%
@@ -163,3 +169,43 @@ res = weaviate_client.query.get(
 print(res)
 # %%
 
+import csv
+# with open("file1.csv", "rb") as f:
+with open("file1.csv") as f:
+    output = f
+
+    # output = output.decode()
+
+    output = csv.DictReader(output , delimiter='\t')
+
+    print(output)
+    for i, row in enumerate(output):
+        print(row)
+        content = "\n".join(
+            f"{k.strip()}: {v.strip()}"
+            for k, v in row.items()
+            # if k not in self.metadata_columns
+        )
+
+
+# %%
+
+from forge.sdk.abilities.web.web_selenium import read_webpage
+
+out = await read_webpage(None,"" , "https://en.wikipedia.org/wiki/Artificial_intelligence" ,"tech")
+
+
+print(out)
+
+
+
+# %%
+
+from forge.sdk.abilities.web.web_search import web_search
+
+out = await web_search(None,"" , "Latent Space podcast hosts Twitter handles")
+
+
+print(out)
+
+# %%

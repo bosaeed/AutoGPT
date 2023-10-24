@@ -9,7 +9,7 @@ from ...forge_log import ForgeLogger
 
 LOGGER = ForgeLogger(__name__)
 
-
+import weaviate
 
 import logging
 import re
@@ -40,6 +40,13 @@ from webdriver_manager.firefox import GeckoDriverManager
 from webdriver_manager.microsoft import EdgeChromiumDriverManager as EdgeDriverManager
 
 
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.vectorstores import Weaviate
+from langchain.document_loaders import TextLoader
+from langchain.document_loaders.csv_loader import CSVLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 from ..registry import ability
 from forge.sdk.errors import *
 import functools
@@ -52,6 +59,11 @@ from requests.compat import urljoin
 
 from bs4 import BeautifulSoup
 from requests.compat import urljoin
+
+import os
+
+WEAVIATE_URL = os.environ["WEAVIATE_URL"]
+WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
 
 
 def extract_hyperlinks(soup: BeautifulSoup, base_url: str) -> list[tuple[str, str]]:
@@ -88,7 +100,7 @@ def validate_url(func: Callable[..., Any]) -> Any:
     a url as an argument"""
 
     @functools.wraps(func)
-    def wrapper(url: str, *args, **kwargs) -> Any:
+    def wrapper(agent , task_id , webpage_url: str, *args, **kwargs) -> Any:
         """Check if the URL is valid using a basic check, urllib check, and local file check
 
         Args:
@@ -101,18 +113,18 @@ def validate_url(func: Callable[..., Any]) -> Any:
             ValueError if the url fails any of the validation tests
         """
         # Most basic check if the URL is valid:
-        if not re.match(r"^https?://", url):
+        if not re.match(r"^https?://", webpage_url):
             raise ValueError("Invalid URL format")
-        if not is_valid_url(url):
+        if not is_valid_url(webpage_url):
             raise ValueError("Missing Scheme or Network location")
         # Restrict access to local files
-        if check_local_file_access(url):
+        if check_local_file_access(webpage_url):
             raise ValueError("Access to local files is restricted")
         # Check URL length
-        if len(url) > 2000:
+        if len(webpage_url) > 2000:
             raise ValueError("URL is too long")
 
-        return func(sanitize_url(url), *args, **kwargs)
+        return func(agent , task_id ,sanitize_url(webpage_url), *args, **kwargs)
 
     return wrapper
 
@@ -190,7 +202,7 @@ logger = logging.getLogger(__name__)
 
 FILE_DIR = Path(__file__).parent.parent
 TOKENS_TO_TRIGGER_SUMMARY = 50
-LINKS_TO_RETURN = 20
+LINKS_TO_RETURN = 10
 
 
 class BrowsingError(CommandExecutionError):
@@ -231,14 +243,17 @@ async def read_webpage(agent, task_id: str, webpage_url: str, question: str = ""
     try:
         LOGGER.info("************** start *****************")
 
-        driver = open_page_in_browser(url)
+        driver = open_page_in_browser(webpage_url)
         LOGGER.info("driver done")
         text = scrape_text_with_selenium(driver)
         LOGGER.info("scrape text")
-        links = scrape_links_with_selenium(driver, url)
+        links = scrape_links_with_selenium(driver, webpage_url)
         LOGGER.info("scrape links")
         if not text:
             return f"Website did not contain any text.\n\nLinks: {links}"
+
+        if (len(text) > 2500 and question):
+            text = extract_info(text , question)
 
         # Limit links to LINKS_TO_RETURN
         if len(links) > LINKS_TO_RETURN:
@@ -382,3 +397,39 @@ def close_browser(driver: WebDriver) -> None:
     """
     driver.quit()
 
+
+
+
+def extract_info(text,query):
+    weaviate_client = weaviate.Client(url=WEAVIATE_URL, auth_client_secret=weaviate.AuthApiKey(WEAVIATE_API_KEY))
+    embeddings = OpenAIEmbeddings()
+    text_splitter = RecursiveCharacterTextSplitter(
+        # Set a really small chunk size, just to show.
+        chunk_size = 500,
+        chunk_overlap  = 0,
+        length_function = len,
+        add_start_index = True,
+    )
+
+    
+    documents = text_splitter.split_text(text)
+
+    # LOGGER.info("******************document generated************")
+    # LOGGER.info(documents)
+    vectorstore = Weaviate.from_texts(documents, embeddings, client=weaviate_client, by_text=False)
+    # LOGGER.info("****************vectorestore added***************")
+
+    # task_query = agent.current_task
+
+    query_embedding = embeddings.embed_query(query)
+
+
+    docs = vectorstore.similarity_search_by_vector(query_embedding  , k=8)
+
+
+    output = ""
+    for doc in docs:
+        output += doc.page_content + " \n"
+
+
+    return output

@@ -11,3 +11,18 @@ You can leverage access to the following resources by read_file ability:
 
 avaliable abilities you can use to fulfil tasks:
 {{abilities}}
+
+{% if constraints %}
+## Constraints
+You operate within the following constraints:
+{% for constraint in constraints %}
+- {{ constraint }}
+{% endfor %}
+{% endif %}
+
+{% if best_practices %}
+## Best practices
+{% for best_practice in best_practices %}
+- {{ best_practice }}
+{% endfor %}
+{% endif %}

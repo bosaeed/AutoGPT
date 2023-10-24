@@ -163,7 +163,7 @@ class ForgeAgent(Agent):
 
         if self.current_steps_num < 2:
             self.task_prompt_args = {
-                "constraints":[],
+                "constraints":["Do not use read_file ability to read file witten by write_file"],
                 "best_practices":[],
             }
             LOG.info( f"************Planning*************")
@@ -209,6 +209,8 @@ class ForgeAgent(Agent):
 
         avaliable_files = self.workspace.list(task_id=task.task_id, path="/")
         p_actions = await self.db.get_previous_action_history(task.task_id)
+
+        p_actions = map(lambda x: self.summerize_task_prompt(x) if len(x)>10000 else x, p_actions) 
         # LOG.info(pprint.pformat(p_actions))
         # Specifying the task parameters
         task_kwargs = {
@@ -225,6 +227,11 @@ class ForgeAgent(Agent):
         # Then, load the task prompt with the designated parameters
         task_prompt = self.prompt_engine.load_prompt("task-step-by-plan", **task_kwargs)
         #messages list:
+
+        LOG.info(f"task prompt length is {len(task_prompt)}")
+
+
+
         messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": task_prompt}
@@ -275,11 +282,11 @@ class ForgeAgent(Agent):
 
                     # Then, load the task prompt with the designated parameters
                     function_prompt = self.prompt_engine.load_prompt("function-output", **function_kwargs)
-                    if output:
-                        # self.chat_history.append({"role":"assistant" , "content" : function_prompt})
-                        # self.previous_actions.append(function_prompt)
+                    # if output:
+                    #     # self.chat_history.append({"role":"assistant" , "content" : function_prompt})
+                    #     # self.previous_actions.append(function_prompt)
 
-                        await self.db.add_previous_action(task.task_id ,function_prompt )
+                    await self.db.add_previous_action(task.task_id ,function_prompt )
 
                     # LOG.info(pprint.pformat(previous_actions))
                     if ability['name'].lower()  == "finish":
@@ -311,6 +318,16 @@ class ForgeAgent(Agent):
             output = f"{type(e).__name__} {e}"
             LOG.error(f"Unable to generate chat response: {type(e).__name__} {e}")
             # self.chat_history.append({"role":"system" , "content" : f"error {e}"})
+            # args = self.trunct_dict(ability["arguments"])
+            # function_kwargs = {
+            #     "name": ability['name'],
+            #     "args": str(args),
+            #     "output": e,
+            # }
+            # function_prompt = self.prompt_engine.load_prompt("function-output", **function_kwargs)
+
+
+            # await self.db.add_previous_action(task.task_id ,function_prompt )
             await self.db.add_chat_message(task.task_id , "system" ,  f"error {e}")
         return output
 
@@ -331,6 +348,7 @@ class ForgeAgent(Agent):
                 # "abilities": self.abilities.list_non_planning_abilities_names(),
                 "abilities": self.abilities.list_non_planning_abilities_name_description(),
                 "resources":avaliable_files,
+                **self.task_prompt_args,
             }
 
             # Then, load the task prompt with the designated parameters
@@ -397,8 +415,8 @@ class ForgeAgent(Agent):
 
     def trunct_dict(self,di):
         for key, value in di.items():
-            if len(value) > 100:
-                di[key] = value[:50]+" ... " + value[-50:]
+            if len(value) > 2000:
+                di[key] = value[:2000]+" ...etc" 
         return di
 
     def get_functions(self, abilities: dict , use_only = None) -> list:
@@ -430,3 +448,59 @@ class ForgeAgent(Agent):
             return v
 
         return v.lower() in ("yes", "true", "t", "1" , "finish")
+
+
+
+    async def summerize_task_prompt(self , task ):
+
+        model = os.getenv('FAST_LLM', "gpt-3.5-turbo")
+        self.prompt_engine = PromptEngine("gpt-3.5-turbo" , self.debug)
+        system_prompt = self.prompt_engine.load_prompt("summerize-task-system")
+
+
+        # Specifying the task parameters
+        task_kwargs = {
+            "text": task,
+
+        }
+
+        # Then, load the task prompt with the designated parameters
+        task_prompt = self.prompt_engine.load_prompt("summerize-task-user", **task_kwargs)
+        #messages list:
+
+        messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": task_prompt}
+                ]
+    
+
+        try:
+
+            chat_completion_kwargs = {
+                "messages": messages,
+                "model": model,
+            }
+            # Make the chat completion request and parse the response
+            LOG.info(pprint.pformat(chat_completion_kwargs))
+            chat_response = await chat_completion_request(**chat_completion_kwargs)
+
+            LOG.info(pprint.pformat(chat_response))
+            output = chat_response["choices"][0]["message"].get("content")
+           
+            return output
+        except json.JSONDecodeError as e:
+            # Handle JSON decoding errors
+            output = f"{e}"
+            LOG.error(f"Unable to decode chat response: {chat_response}")
+            
+        except Exception as e:
+            # Handle other exceptions
+            if (type(e).__name__ == KeyError):
+                output = f"{e}"
+            else:
+                output = f"{type(e).__name__} {e}"
+            LOG.error(f"Unable to generate chat response: {output}")
+
+        return output
+
+    

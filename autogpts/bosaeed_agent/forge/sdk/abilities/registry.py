@@ -209,7 +209,7 @@ class AbilityRegister:
             LOGGER.info(f"kwds {kwds}")
             return await ability(self.agent, task_id, *args, **kwds)
         except KeyError:
-            raise KeyError(f"no ability with name {ability_name} use provided abilities only")
+            raise KeyError(f"Do Not Use non existing ability {ability_name} ,use provided abilities only")
         except Exception:
             raise
 

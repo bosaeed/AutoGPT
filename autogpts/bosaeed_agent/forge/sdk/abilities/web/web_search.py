@@ -9,6 +9,10 @@ from duckduckgo_search import DDGS
 
 from ..registry import ability
 
+from .web_selenium import read_webpage
+
+import re
+
 DUCKDUCKGO_MAX_ATTEMPTS = 3
 
 
@@ -18,7 +22,7 @@ DUCKDUCKGO_MAX_ATTEMPTS = 3
     parameters=[
         {
             "name": "query",
-            "description": "The search query",
+            "description": "The search query not url",
             "type": "string",
             "required": True,
         }
@@ -39,6 +43,9 @@ async def web_search(agent, task_id: str, query: str) -> str:
     attempts = 0
     num_results = 8
 
+    if(re.search(r"^https?:\/\/", query.lower())):
+        return "use read_webpage ability to extract url webpage data instead of web_search"
+
     while attempts < DUCKDUCKGO_MAX_ATTEMPTS:
         if not query:
             return json.dumps(search_results)
@@ -51,6 +58,17 @@ async def web_search(agent, task_id: str, query: str) -> str:
 
         time.sleep(1)
         attempts += 1
+
+    count = 0
+    for res in search_results:
+        
+        res["body"] = (await read_webpage(agent,task_id,res["href"] , query))
+
+        count +=1
+        if count > 3:
+            break
+
+        # print(res)
 
     results = json.dumps(search_results, ensure_ascii=False, indent=4)
     return safe_google_results(results)

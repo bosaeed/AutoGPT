@@ -85,6 +85,9 @@ async def write_file(agent, task_id: str, file_path: str, data: bytes ) -> str:
     if isinstance(data, str):
         data = data.encode()
 
+    if(agent.workspace.exists( task_id, file_path)):
+        return f"file {file_path} already exist"
+
     agent.workspace.write(task_id=task_id, path=file_path, data=data)
     await agent.db.create_artifact(
         task_id=task_id,
@@ -110,7 +113,7 @@ async def write_file(agent, task_id: str, file_path: str, data: bytes ) -> str:
             "name": "query",
             "description": "query for information needed",
             "type": "string",
-            "required": True,
+            "required": False,
         },
     ],
     output_type="bytes",
