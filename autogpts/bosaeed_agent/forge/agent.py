@@ -1,6 +1,7 @@
 import json
 import pprint
 import os
+import weaviate
 
 from forge.sdk import (
     Agent,
@@ -22,6 +23,11 @@ LOG = ForgeLogger(__name__)
 
 # MODEL = "gpt-3.5-turbo"
 MAX_STEPS = 10
+
+
+WEAVIATE_URL = os.environ["WEAVIATE_URL"]
+WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
+COHERE_API_KEY = os.environ["COHERE_API_KEY"]
 
 class ForgeAgent(Agent):
     """
@@ -75,7 +81,12 @@ class ForgeAgent(Agent):
     The Forge has a basic module for each of these areas. However, you are free to implement your own.
     This is just a starting point.
     """
+    # auth_config = weaviate.AuthApiKey(api_key=WEAVIATE_API_KEY)  # Replace w/ your Weaviate instance API key
 
+    # self.weaviate_client = weaviate.Client(url=WEAVIATE_URL,
+    #  auth_client_secret=auth_config,additional_headers={
+    #     "X-Cohere-Api-Key": COHERE_API_KEY, # Replace with your cohere key
+    #     })
     def __init__(self, database: AgentDB, workspace: Workspace):
         """
         The database is used to store tasks, steps and artifact metadata. The workspace is used to
@@ -83,9 +94,9 @@ class ForgeAgent(Agent):
 
         Feel free to create subclasses of the database and workspace to implement your own storage
         """
-        
-
         self.debug = False
+        self.current_task = ""
+        self.used_abilities = None
         # self.planner = Planner()
         super().__init__(database, workspace)
 
@@ -104,12 +115,11 @@ class ForgeAgent(Agent):
         self.current_steps_num = 0
         self.is_last_step = False
         self.plan = ""
+        self.used_abilities = None
         task = await super().create_task(task_request)
         LOG.info(
             f"📦 Task created: {task.task_id} input: {task.input[:40]}{'...' if len(task.input) > 40 else ''}"
         )
-        # self.planner.create_task(self ,task , task.input )
-
         return task
 
     async def execute_step(self, task_id: str, step_request: StepRequestBody) -> Step:
@@ -150,18 +160,11 @@ class ForgeAgent(Agent):
         )
         LOG.info(pprint.pformat(step_request))
 
-        try:
-            files = self.workspace.list(task_id=task.task_id, path="/")
-        except:
-            files=[]
-
 
         if self.current_steps_num < 2:
             self.task_prompt_args = {
                 "constraints":[],
                 "best_practices":[],
-                "resources":[],
-                "avaliable_files":files,
             }
             LOG.info( f"************Planning*************")
             # await self.plan_gpt(task)
@@ -180,7 +183,7 @@ class ForgeAgent(Agent):
 
         else:
             output = ""
-            output = await self.ask_gpt(task,used_functions=self.abilities.list_non_planning_abilities_names() , plan=self.plan)
+            output = await self.ask_gpt(task,used_functions=self.used_abilities , plan=self.plan)
 
 
         if self.current_steps_num > MAX_STEPS :
@@ -197,45 +200,6 @@ class ForgeAgent(Agent):
 
         return step
 
-    def get_functions(self, abilities: dict , use_only:list = None) -> list:
-        functions = []
-        for ability in abilities:
-            if(use_only != None and ability.name not in use_only):
-                continue
-
-            # abi = {
-            #     'name': ability.name,
-            #     'description': ability.description,
-            #     'parameters': {
-            #         'type': 'object',
-            #         'properties': { 
-            #         },
-            #         'required':[]
-            #     }
-            # }
-
-            abi = f"# {ability.name}: {ability.description}\n  ## arguments: \n"
-
-            for par in ability.parameters:
-                # abi['parameters']['properties'][par.name] = {}
-                # abi['parameters']['properties'][par.name]['type'] = par.type
-                # abi['parameters']['properties'][par.name]['description'] = par.description
-                # if(par.required):
-                #     abi['parameters']['required'].append(par.name)
-                abi += f"  * {par.name}: {par.description}, type: {par.type}\n"
-
-           
-            functions.append(str(abi))        
-
-        return functions
-
-    def str2bool(self,v):
-        if(not v):
-            return False
-        if(type(v)== type(True)):
-            return v
-
-        return v.lower() in ("yes", "true", "t", "1" , "finish")
 
     async def ask_gpt(self , task , used_functions = None , function_call = "auto" , plan = None):
 
@@ -243,7 +207,7 @@ class ForgeAgent(Agent):
         self.prompt_engine = PromptEngine("gpt-3.5-turbo" , self.debug)
         system_prompt = self.prompt_engine.load_prompt("system-format-2")
 
-
+        avaliable_files = self.workspace.list(task_id=task.task_id, path="/")
         p_actions = await self.db.get_previous_action_history(task.task_id)
         # LOG.info(pprint.pformat(p_actions))
         # Specifying the task parameters
@@ -253,6 +217,7 @@ class ForgeAgent(Agent):
             "abilities": self.get_functions(self.abilities.list_abilities().values() , used_functions),
             "plan":plan,
             "previous_actions":p_actions,
+            "resources":avaliable_files,
             **self.task_prompt_args,
             
         }
@@ -276,6 +241,7 @@ class ForgeAgent(Agent):
             chat_completion_kwargs = {
                 "messages": messages,
                 "model": model,
+                
                 # "functions":functions,
                 # "function_call": function_call,
             }
@@ -295,11 +261,12 @@ class ForgeAgent(Agent):
             # if (chat_response["choices"][0]["message"].get("function_call")):
                 if content.get("ability"):
                     ability = content["ability"]
-                    # ability["arguments"] = json.loads(ability["arguments"])
+                    LOG.info(pprint.pformat(ability))
                     output = await self.abilities.run_ability(
                         task.task_id, ability["name"], **ability["arguments"]
                     )
 
+                    ability["arguments"] = self.trunct_dict(ability["arguments"])
                     function_kwargs = {
                         "name": ability['name'],
                         "args": str(ability["arguments"]),
@@ -319,11 +286,13 @@ class ForgeAgent(Agent):
                         self.is_last_step = True
 
 
-                    LOG.info(pprint.pformat(ability))
+                    
                 if content.get("is_last_step") and self.str2bool(content.get("is_last_step")):
                     self.is_last_step = True
                 if content.get("updated_plan") :
                     self.plan = content.get("updated_plan")
+                if content.get("current_task") :
+                    self.current_task = content.get("current_task")
 
 
                 LOG.info(pprint.pformat(output))
@@ -345,67 +314,74 @@ class ForgeAgent(Agent):
             await self.db.add_chat_message(task.task_id , "system" ,  f"error {e}")
         return output
 
+
+
     async def plan_gpt(self , task ):
 
-        plan_model = os.getenv('PLANNER_MODEL', "gpt-3.5-turbo")
-        self.prompt_engine = PromptEngine("gpt-3.5-turbo" , self.debug)
-        system_prompt = self.prompt_engine.load_prompt("system-format-plan-2")
+        for i in range(3):
+            plan_model = os.getenv('PLANNER_MODEL', "gpt-3.5-turbo")
+            self.prompt_engine = PromptEngine("gpt-3.5-turbo" , self.debug)
+            system_prompt = self.prompt_engine.load_prompt("system-format-plan-2")
 
+            avaliable_files = self.workspace.list(task_id=task.task_id, path="/")
 
-        # Specifying the task parameters
-        task_kwargs = {
-            "task": task.input,
-            # "abilities": self.abilities.list_non_planning_abilities_names(),
-            "abilities": self.abilities.list_non_planning_abilities_name_description(),
-        
-        }
-
-        # Then, load the task prompt with the designated parameters
-        task_prompt = self.prompt_engine.load_prompt("user-format-plan", **task_kwargs)
-        #messages list:
-        messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": task_prompt}
-                ]
-      
-
-        try:
-            # for msg in self.chat_history:
-            #     messages.append(msg)
-            messages.extend(await self.db.get_chat_history(task.task_id))
-            # Define the parameters for the chat completion request
-            chat_completion_kwargs = {
-                "messages": messages,
-                "model": plan_model,
+            # Specifying the task parameters
+            task_kwargs = {
+                "task": task.input,
+                # "abilities": self.abilities.list_non_planning_abilities_names(),
+                "abilities": self.abilities.list_non_planning_abilities_name_description(),
+                "resources":avaliable_files,
             }
-            # Make the chat completion request and parse the response
-            LOG.info(pprint.pformat(chat_completion_kwargs))
-            chat_response = await chat_completion_request(**chat_completion_kwargs)
 
-            LOG.info(pprint.pformat(chat_response))
-            output = ""
-            if (chat_response["choices"][0]["message"].get("content")):
-                output = chat_response["choices"][0]["message"]["content"]
-                # output = json.loads(chat_response["choices"][0]["message"]["content"])
+            # Then, load the task prompt with the designated parameters
+            task_prompt = self.prompt_engine.load_prompt("user-format-plan", **task_kwargs)
+            #messages list:
 
-                # output = self.orgnize_plan(output)
-                # self.chat_history.append({"role":"assistant" , "content" : output})
-                
-                LOG.info(pprint.pformat(output))
+            messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": task_prompt}
+                    ]
+        
 
+            try:
+                # for msg in self.chat_history:
+                #     messages.append(msg)
+                messages.extend(await self.db.get_chat_history(task.task_id+"-plan"))
 
-        except json.JSONDecodeError as e:
-            # Handle JSON decoding errors
-            output = f"{e}"
-            LOG.error(f"Unable to decode chat response: {chat_response}")
-            
-        except Exception as e:
-            # Handle other exceptions
-            if (type(e).__name__ == KeyError):
+                # Define the parameters for the chat completion request
+                chat_completion_kwargs = {
+                    "messages": messages,
+                    "model": plan_model,
+                }
+                # Make the chat completion request and parse the response
+                LOG.info(pprint.pformat(chat_completion_kwargs))
+                chat_response = await chat_completion_request(**chat_completion_kwargs)
+
+                LOG.info(pprint.pformat(chat_response))
+                output = ""
+                if (chat_response["choices"][0]["message"].get("content")):
+                    output_json = json.loads(chat_response["choices"][0]["message"]["content"])
+                    self.used_abilities = output_json["ability"]
+
+                    output = output_json["plan"]
+                    
+                    LOG.info(pprint.pformat(output))
+
+                return output
+            except json.JSONDecodeError as e:
+                # Handle JSON decoding errors
                 output = f"{e}"
-            else:
-                output = f"{type(e).__name__} {e}"
-            LOG.error(f"Unable to generate chat response: {output}")
+                LOG.error(f"Unable to decode chat response: {chat_response}")
+                await self.db.add_chat_message(task.task_id+"-plan" , "system" ,  f"error {e}")
+                
+            except Exception as e:
+                # Handle other exceptions
+                if (type(e).__name__ == KeyError):
+                    output = f"{e}"
+                else:
+                    output = f"{type(e).__name__} {e}"
+                LOG.error(f"Unable to generate chat response: {output}")
+                await self.db.add_chat_message(task.task_id+"-plan" , "system" ,  f"error {e}")
 
         return output
 
@@ -418,3 +394,39 @@ class ForgeAgent(Agent):
         output += f"criticism: {thoughts['criticism']}"
 
         return output
+
+    def trunct_dict(self,di):
+        for key, value in di.items():
+            if len(value) > 100:
+                di[key] = value[:50]+" ... " + value[-50:]
+        return di
+
+    def get_functions(self, abilities: dict , use_only = None) -> list:
+        functions = []
+        for ability in abilities:
+            if(use_only != None and ability.name not in use_only):
+                continue
+
+
+            abi = f"# {ability.name}: {ability.description}\n  ## arguments: \n"
+
+            for par in ability.parameters:
+                # abi['parameters']['properties'][par.name] = {}
+                # abi['parameters']['properties'][par.name]['type'] = par.type
+                # abi['parameters']['properties'][par.name]['description'] = par.description
+                # if(par.required):
+                #     abi['parameters']['required'].append(par.name)
+                abi += f"  * {par.name}: {par.description}, type: {par.type}\n"
+
+           
+            functions.append(str(abi))        
+
+        return functions
+
+    def str2bool(self,v):
+        if(not v):
+            return False
+        if(type(v)== type(True)):
+            return v
+
+        return v.lower() in ("yes", "true", "t", "1" , "finish")

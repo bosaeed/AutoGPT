@@ -1,7 +1,13 @@
 Create tasks lists to to fulfil this goal:
 {{task}}
 
-
+{% if resources %}
+## Resources
+You can leverage access to the following resources by read_file ability:
+{% for resource in resources %}
+- {{ resource }}
+{% endfor %}
+{% endif %}
 
 avaliable abilities you can use to fulfil tasks:
 {{abilities}}

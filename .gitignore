@@ -172,3 +172,4 @@ pri*
 # ignore
 ig*
 .github_access_token
+autogpts/bosaeed_agent/testf.py

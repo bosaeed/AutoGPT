@@ -5,6 +5,12 @@ from __future__ import annotations
 COMMAND_CATEGORY = "web_browse"
 COMMAND_CATEGORY_TITLE = "Web Browsing"
 
+from ...forge_log import ForgeLogger
+
+LOGGER = ForgeLogger(__name__)
+
+
+
 import logging
 import re
 from pathlib import Path
@@ -196,7 +202,7 @@ class BrowsingError(CommandExecutionError):
     description="Read a webpage, and extract specific information from it if a question is specified. If you are looking to extract specific information from the webpage, you should specify a question.",
     parameters=[
         {
-            "name": "url",
+            "name": "webpage_url",
             "description": "The URL to visit",
             "type": "string",
             "required": True,
@@ -211,7 +217,7 @@ class BrowsingError(CommandExecutionError):
     output_type="string",
 )
 @validate_url
-async def read_webpage(agent, task_id: str, url: str, question: str = "") -> Tuple(str, List[str]):
+async def read_webpage(agent, task_id: str, webpage_url: str, question: str = "") -> Tuple(str, List[str]):
     """Browse a website and return the answer and links to the user
 
     Args:
@@ -223,11 +229,14 @@ async def read_webpage(agent, task_id: str, url: str, question: str = "") -> Tup
     """
     driver = None
     try:
+        LOGGER.info("************** start *****************")
+
         driver = open_page_in_browser(url)
-
+        LOGGER.info("driver done")
         text = scrape_text_with_selenium(driver)
+        LOGGER.info("scrape text")
         links = scrape_links_with_selenium(driver, url)
-
+        LOGGER.info("scrape links")
         if not text:
             return f"Website did not contain any text.\n\nLinks: {links}"
 

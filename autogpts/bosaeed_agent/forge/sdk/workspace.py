@@ -37,6 +37,7 @@ class LocalWorkspace(Workspace):
         self.base_path = Path(base_path).resolve()
 
     def _resolve_path(self, task_id: str, path: str) -> Path:
+        path = str(path)
         path = path if not path.startswith("/") else path[1:]
         abs_path = (self.base_path / task_id / path).resolve()
         if not str(abs_path).startswith(str(self.base_path)):
@@ -51,6 +52,10 @@ class LocalWorkspace(Workspace):
     def read(self, task_id: str, path: str) -> bytes:
         with open(self._resolve_path(task_id, path), "rb") as f:
             return f.read()
+
+    # def read_csv(self, task_id: str, path: str) -> bytes:
+    #     with open(self._resolve_path(task_id, path), "rb") as f:
+    #         return f.read()
 
     def write(self, task_id: str, path: str, data: bytes) -> None:
         file_path = self._resolve_path(task_id, path)
@@ -71,10 +76,12 @@ class LocalWorkspace(Workspace):
             os.remove(resolved_path)
 
     def exists(self, task_id: str, path: str) -> bool:
-        # path = self.base_path / task_id / path
+        path = self.base_path / task_id / path
         return self._resolve_path(task_id, path).exists()
 
     def list(self, task_id: str, path: str) -> typing.List[str]:
-        # path = self.base_path / task_id / path
+        path = self.base_path / task_id / path
         base = self._resolve_path(task_id, path)
+        if not base.exists() or not base.is_dir():
+            return []
         return [str(p.relative_to(self.base_path / task_id)) for p in base.iterdir()]

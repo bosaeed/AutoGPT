@@ -1,42 +1,102 @@
-
-
-# from forge.sdk.workspace import LocalWorkspace
-# import os
-# wor = LocalWorkspace(".")
-
-# print(wor.list("",""))
-
-
-# import json
-# print(json.dumps(["asdasd","dfsfsdf"]))
-
 #%%
 import weaviate
+import os
+from dotenv import load_dotenv
 
 
-auth_config = weaviate.AuthApiKey(api_key="2wMDJgDrr4dYJQ6pa19qKKbIfMjjQAH7SyAw")  # Replace w/ your Weaviate instance API key
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.vectorstores import Weaviate
+from langchain.document_loaders import TextLoader
+from langchain.document_loaders.csv_loader import CSVLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# Instantiate the client with the auth config
-client = weaviate.Client(
-    url="https://autogpt-cluster-5gdt9cse.weaviate.network",  # Replace w/ your endpoint
-    auth_client_secret=auth_config,
-    additional_headers={  # (Optional) Any additional headers; e.g. keys for API inference services
-    "X-Cohere-Api-Key": "ElLgLL7pk5bazHA3NX9KCmVQrAwjGDWnqaIG93Af",            # Replace with your Cohere key
-    # "X-HuggingFace-Api-Key": "YOUR-HUGGINGFACE-API-KEY",  # Replace with your Hugging Face key
-    # "X-OpenAI-Api-Key": "YOUR-OPENAI-API-KEY",            # Replace with your OpenAI key
-  }
+load_dotenv(".env")
+
+WEAVIATE_URL = os.environ["WEAVIATE_URL"]
+WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
+COHERE_API_KEY = os.environ["COHERE_API_KEY"]
+
+OPENAI_API_KEY=os.environ.get("OPENAI_API_KEY")
+OPENAI_API_BASE=os.environ.get("OPENAI_API_BASE" , "https://api.openai.com/v1")
+
+auth_config = weaviate.AuthApiKey(api_key=WEAVIATE_API_KEY)  # Replace w/ your Weaviate instance API key
+
+
+weaviate_client = weaviate.Client(url=WEAVIATE_URL, 
+auth_client_secret=auth_config,
+additional_headers={
+        # "X-Cohere-Api-Key": COHERE_API_KEY, # Replace with your cohere key
+        "X-OpenAI-Api-Key": OPENAI_API_KEY, # Replace with your OpenAI key
+        })
+
+
+weaviate_client.schema.get()  # Get the schema to test connection
+
+#%%
+
+output = ""
+with open("file1.csv", "rb") as f:
+    output =  f.read().decode()
+
+print(output)
+
+#%%
+weaviate_client = weaviate.Client(url=WEAVIATE_URL, auth_client_secret=weaviate.AuthApiKey(WEAVIATE_API_KEY))
+embeddings = OpenAIEmbeddings()
+
+
+
+
+
+#%%
+# loader = TextLoader("../../modules/state_of_the_union.txt")
+# documents = loader.load()
+text_splitter = CharacterTextSplitter(chunk_size=10, chunk_overlap=0)
+
+text_splitter = RecursiveCharacterTextSplitter(
+    # Set a really small chunk size, just to show.
+    chunk_size = 200,
+    chunk_overlap  = 0,
+    length_function = len,
+    add_start_index = True,
 )
 
 
-client.schema.get()  # Get the schema to test connection
+documents = text_splitter.split_text(output)
 
+print(documents)
 
+#%%
+vectorstore = Weaviate.from_texts(documents, embeddings, client=weaviate_client, by_text=False)
+query = "utility"
+
+query_embedding = embeddings.embed_query(query)
+
+docs = vectorstore.similarity_search_by_vector(query_embedding)
+
+print(docs)
+
+#%%
+weaviate_client.schema.get()
+
+#%%
+result = weaviate_client.query.get("LangChain_1a9902e563d1449ebd85a09cd517ab51", ["text", ]).do()
+print(result)
 # %%
 
 class_obj = {
     # Class definition
     "class": "JeopardyQuestion",
-    "vectorizer": "text2vec-cohere",
+    "vectorizer": "text2vec-openai",
+    "moduleConfig": {
+        "text2vec-openai": {
+          "model": "ada",
+          "modelVersion": "002",
+          "type": "text",
+          "baseURL": OPENAI_API_BASE.replace("v1", "")
+        }
+      },
     # Property definitions
     "properties": [
         {
@@ -54,10 +114,10 @@ class_obj = {
     ],
 
 }
-client.schema.delete_class("JeopardyQuestion")
-client.schema.create_class(class_obj)
+weaviate_client.schema.delete_class("JeopardyQuestion")
+weaviate_client.schema.create_class(class_obj)
 
-client.schema.get()  # Get the schema to test connection
+weaviate_client.schema.get()  # Get the schema to test connection
 
 # %%
 
@@ -68,7 +128,7 @@ print(df)
 # %%
 from weaviate.util import generate_uuid5
 
-with client.batch(
+with weaviate_client.batch(
     batch_size=200,  # Specify batch size
     num_workers=2,   # Parallelize the process
 ) as batch:
@@ -84,16 +144,16 @@ with client.batch(
             uuid=generate_uuid5(question_object)
         )
 # %%
-client.query.aggregate("JeopardyQuestion").with_meta_count().do()
+weaviate_client.query.aggregate("JeopardyQuestion").with_meta_count().do()
 
 #%%
 import json
 
-res = client.query.get("JeopardyQuestion", ["question", "answer", "category"]).with_additional(["id", "vector"]).with_limit(2).do()
+res = weaviate_client.query.get("JeopardyQuestion", ["question", "answer", "category"]).with_additional(["id"]).with_limit(2).do()
 
 print(json.dumps(res, indent=4))
 # %%
-res = client.query.get(
+res = weaviate_client.query.get(
     "JeopardyQuestion",
     ["question", "answer", "category"])\
     .with_near_text({"concepts": "animals"})\
@@ -103,22 +163,3 @@ res = client.query.get(
 print(res)
 # %%
 
-import requests
-
-headers = {
-    # 'User-agent':
-    # 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36'
-    
-}
-
-params = {
-  'q': 'minecraft',
-'format': 'json',
-}
-
-html = requests.get('http://localhost:8899/search', headers=headers, params=params)
-
-print(html.json)
-# %%
-print(html.json()['results'])
-# %%

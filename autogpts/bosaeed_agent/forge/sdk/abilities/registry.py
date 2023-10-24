@@ -6,6 +6,10 @@ from typing import Any, Callable, List
 
 import pydantic
 
+from ..forge_log import ForgeLogger
+
+LOGGER = ForgeLogger(__name__)
+
 
 class AbilityParameter(pydantic.BaseModel):
     """
@@ -75,6 +79,8 @@ def ability(
     name: str, description: str, parameters: List[AbilityParameter], output_type: str
 ):
     def decorator(func):
+        # LOGGER.info(f"call ability {name}")
+        # LOGGER.info(f"parameters {parameters}")
         func_params = inspect.signature(func).parameters
         param_names = set(
             [AbilityParameter.parse_obj(param).name for param in parameters]
@@ -198,6 +204,9 @@ class AbilityRegister:
         """
         try:
             ability = self.abilities[ability_name]
+            LOGGER.info(f"call ability {ability_name}")
+            LOGGER.info(f"args {args}")
+            LOGGER.info(f"kwds {kwds}")
             return await ability(self.agent, task_id, *args, **kwds)
         except KeyError:
             raise KeyError(f"no ability with name {ability_name} use provided abilities only")

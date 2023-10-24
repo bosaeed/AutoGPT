@@ -42,6 +42,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "forge.app:app", host="localhost", port=port, log_level="info", reload=True ,
-          reload_dirs=[] ,reload_excludes=["/home/bosaeed/AutoGPT/autogpts/bosaeed_agent/agbenchmark_config",]
+          reload_excludes=["/home/bosaeed/AutoGPT/autogpts/bosaeed_agent/agbenchmark_config",]
           
     )
