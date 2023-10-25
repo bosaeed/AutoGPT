@@ -82,11 +82,16 @@ async def write_file(agent, task_id: str, file_path: str, data: bytes ) -> str:
     """
     Write data to a file
     """
+    
+
+    # if(agent.workspace.exists( task_id, file_path)):
+    #     return f"file {file_path} already exist"
+
+    if(".py" in file_path and is_correct_python(data) == False):
+        return "provided data in not valid python code"
+
     if isinstance(data, str):
         data = data.encode()
-
-    if(agent.workspace.exists( task_id, file_path)):
-        return f"file {file_path} already exist"
 
     agent.workspace.write(task_id=task_id, path=file_path, data=data)
     await agent.db.create_artifact(
@@ -259,6 +264,42 @@ async def summeraize_texts(agent, text ,query):
         LOGGER.info(pprint.pformat(chat_response))
         if (chat_response["choices"][0]["message"].get("content")):
             output = chat_response["choices"][0]["message"]["content"]
+
+        
+    except Exception as e:
+        # Handle other exceptions
+        output = f"{type(e).__name__} {e}"
+        LOGGER.error(f"Unable to generate chat response: {type(e).__name__} {e}")
+
+    return output
+
+
+
+async def is_correct_python( code ):
+
+    model =  os.getenv('FAST_LLM', "gpt-3.5-turbo")
+
+
+    messages = [
+                {"role": "system", "content": "you are expert in python return true or false only"},
+                {"role": "user", "content": f"check if following code is valid python code:\n {code}"}
+            ]
+    
+    try:
+
+        chat_completion_kwargs = {
+            "messages": messages,
+            "model": model,
+
+        }
+        # Make the chat completion request and parse the response
+        LOGGER.info(pprint.pformat(chat_completion_kwargs))
+        chat_response = await chat_completion_request(**chat_completion_kwargs)
+
+
+        LOGGER.info(pprint.pformat(chat_response))
+
+        output = True if chat_response["choices"][0]["message"]["content"].lower() in ["true" , "yes" , "ok"] else False
 
         
     except Exception as e:

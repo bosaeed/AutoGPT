@@ -210,7 +210,15 @@ class ForgeAgent(Agent):
         avaliable_files = self.workspace.list(task_id=task.task_id, path="/")
         p_actions = await self.db.get_previous_action_history(task.task_id)
 
-        p_actions = map(lambda x: self.summerize_task_prompt(x) if len(x)>10000 else x, p_actions) 
+        # p_actions = map(lambda x: await self.summerize_task_prompt(x) if len(x)>10000 else x, p_actions) 
+
+        actions = []
+        for action in p_actions:
+            if(len(action)<10000):
+                actions.append(action)
+            else:
+                actions.append(await self.summerize_task_prompt(action))
+        p_actions =  actions
         # LOG.info(pprint.pformat(p_actions))
         # Specifying the task parameters
         task_kwargs = {
