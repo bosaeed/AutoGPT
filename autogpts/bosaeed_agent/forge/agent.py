@@ -164,7 +164,7 @@ class ForgeAgent(Agent):
         if self.current_steps_num < 2:
             self.task_prompt_args = {
                 "constraints":["Do not use read_file ability to read file witten by write_file"],
-                "best_practices":[],
+                "best_practices":["try to generate code using write_file without web search "],
             }
             LOG.info( f"************Planning*************")
             # await self.plan_gpt(task)
@@ -210,16 +210,6 @@ class ForgeAgent(Agent):
         avaliable_files = self.workspace.list(task_id=task.task_id, path="/")
         p_actions = await self.db.get_previous_action_history(task.task_id)
 
-        # p_actions = map(lambda x: await self.summerize_task_prompt(x) if len(x)>10000 else x, p_actions) 
-
-        actions = []
-        for action in p_actions:
-            if(len(action)<10000):
-                actions.append(action)
-            else:
-                actions.append(await self.summerize_task_prompt(action))
-        p_actions =  actions
-        # LOG.info(pprint.pformat(p_actions))
         # Specifying the task parameters
         task_kwargs = {
             "task": task.input,
@@ -246,12 +236,9 @@ class ForgeAgent(Agent):
                 ]
       
         try:
-            # for msg in self.chat_history:
-            #     messages.append(msg)
 
             messages.extend(await self.db.get_chat_history(task.task_id))
-            # for msg in self.plan_history:
-            #     messages.append(msg)
+
             # Define the parameters for the chat completion request
             chat_completion_kwargs = {
                 "messages": messages,
@@ -282,26 +269,22 @@ class ForgeAgent(Agent):
                     )
 
                     ability["arguments"] = self.trunct_dict(ability["arguments"])
+
+                    if (len(str(output)) > 10000):
+                        output = await self.summerize_task_prompt(output)
                     function_kwargs = {
                         "name": ability['name'],
                         "args": str(ability["arguments"]),
                         "output": output,
                     }
 
-                    # Then, load the task prompt with the designated parameters
                     function_prompt = self.prompt_engine.load_prompt("function-output", **function_kwargs)
-                    # if output:
-                    #     # self.chat_history.append({"role":"assistant" , "content" : function_prompt})
-                    #     # self.previous_actions.append(function_prompt)
 
                     await self.db.add_previous_action(task.task_id ,function_prompt )
 
-                    # LOG.info(pprint.pformat(previous_actions))
                     if ability['name'].lower()  == "finish":
                         self.is_last_step = True
 
-
-                    
                 if content.get("is_last_step") and self.str2bool(content.get("is_last_step")):
                     self.is_last_step = True
                 if content.get("updated_plan") :
@@ -325,17 +308,7 @@ class ForgeAgent(Agent):
             # Handle other exceptions
             output = f"{type(e).__name__} {e}"
             LOG.error(f"Unable to generate chat response: {type(e).__name__} {e}")
-            # self.chat_history.append({"role":"system" , "content" : f"error {e}"})
-            # args = self.trunct_dict(ability["arguments"])
-            # function_kwargs = {
-            #     "name": ability['name'],
-            #     "args": str(args),
-            #     "output": e,
-            # }
-            # function_prompt = self.prompt_engine.load_prompt("function-output", **function_kwargs)
 
-
-            # await self.db.add_previous_action(task.task_id ,function_prompt )
             await self.db.add_chat_message(task.task_id , "system" ,  f"error {e}")
         return output
 

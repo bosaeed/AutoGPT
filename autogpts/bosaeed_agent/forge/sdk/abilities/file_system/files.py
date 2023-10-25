@@ -64,8 +64,8 @@ WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
     description="create file and Write data to it",
     parameters=[
         {
-            "name": "file_path",
-            "description": "Path to the file",
+            "name": "file_name",
+            "description": "Name of file",
             "type": "string",
             "required": True,
         },
@@ -78,26 +78,26 @@ WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
     ],
     output_type="None",
 )
-async def write_file(agent, task_id: str, file_path: str, data: bytes ) -> str:
+async def write_file(agent, task_id: str, file_name: str, data: bytes ) -> str:
     """
     Write data to a file
     """
     
 
-    # if(agent.workspace.exists( task_id, file_path)):
-    #     return f"file {file_path} already exist"
+    # if(agent.workspace.exists( task_id, file_name)):
+    #     return f"file {file_name} already exist"
 
-    if(".py" in file_path and is_correct_python(data) == False):
+    if(".py" in file_name and await is_correct_python(data) != True):
         return "provided data in not valid python code"
 
     if isinstance(data, str):
         data = data.encode()
 
-    agent.workspace.write(task_id=task_id, path=file_path, data=data)
+    agent.workspace.write(task_id=task_id, path=file_name, data=data)
     await agent.db.create_artifact(
         task_id=task_id,
-        file_name=file_path.split("/")[-1],
-        relative_path=file_path,
+        file_name=file_name.split("/")[-1],
+        relative_path=file_name,
         agent_created=True,
     )
 
@@ -238,7 +238,7 @@ async def summeraize_texts(agent, text ,query):
 
     task_kwargs = {
         "query": query,
-"text": text,
+        "text": text,
         
     }
     # LOG.info(pprint.pformat(task_kwargs))
